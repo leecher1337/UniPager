@@ -112,7 +112,7 @@ impl SysFsGpioPin {
             direction: direction
         };
         
-        println!("Attempting to export GPIO pin {}, direction {}", number, direction);
+        println!("Attempting to export GPIO pin {}", number);
         pin.pin.export().expect("Failed to export GPIO pin.");
         pin.set_direction(direction);
         pin
