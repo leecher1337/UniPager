@@ -111,7 +111,8 @@ impl SysFsGpioPin {
             pin: sysfs_gpio::Pin::new(number as u64),
             direction: direction
         };
-
+        
+        println!("Attempting to export GPIO pin {}, direction {}", number, direction);
         pin.pin.export().expect("Failed to export GPIO pin.");
         pin.set_direction(direction);
         pin
