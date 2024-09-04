@@ -1,4 +1,4 @@
-use frontend::{Responder, Response};
+use crate::frontend::{Responder, Response};
 use log::{self, Log, Level, LevelFilter, Metadata, Record};
 use std::sync::Mutex;
 

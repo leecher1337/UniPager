@@ -4,9 +4,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::thread::{self, JoinHandle};
 
-use config::Config;
-use pocsag::{Generator, Message, MessageProvider, TestGenerator, TimeSlots};
-use transmitter::{self, Transmitter};
+use crate::config::Config;
+use crate::pocsag::{Generator, Message, MessageProvider, TestGenerator, TimeSlots};
+use crate::transmitter::{self, Transmitter};
 
 enum Command {
     Message(Message),
@@ -78,7 +78,7 @@ impl Scheduler {
 }
 
 impl SchedulerCore {
-    pub fn run(&mut self, mut transmitter: Box<Transmitter>) {
+    pub fn run(&mut self, mut transmitter: Box<dyn Transmitter>) {
         info!("Scheduler started.");
         while !self.stop {
             let mut message = self.queue.pop_front();
@@ -155,7 +155,7 @@ impl SchedulerCore {
         }
     }
 
-    pub fn test(&mut self, mut transmitter: Box<Transmitter>) {
+    pub fn test(&mut self, mut transmitter: Box<dyn Transmitter>) {
         status!(transmitting: true);
         transmitter.send(&mut TestGenerator::new(1125));
         status!(transmitting: false);

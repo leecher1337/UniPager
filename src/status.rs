@@ -1,5 +1,5 @@
-use frontend::Responder;
-use pocsag::{TimeSlot, TimeSlots};
+use crate::frontend::Responder;
+use crate::pocsag::{TimeSlot, TimeSlots};
 use std::sync::{Mutex, RwLock};
 
 lazy_static! {
@@ -44,6 +44,7 @@ pub fn get() -> Status {
     STATUS.read().unwrap().clone()
 }
 
+#[macro_export]
 macro_rules! status {
     ( $( $key:ident: $value:expr),* ) => ({
         let mut status = $crate::status::STATUS.write().unwrap();
@@ -67,18 +68,7 @@ macro_rules! status {
     });
 }
 
-macro_rules! status_silent {
-    ( $( $key:ident: $value:expr),* ) => ({
-        let mut status = $crate::status::STATUS.write().unwrap();
-        $(
-            // Update only if the value has changed
-            if status.$key != $value {
-                status.$key = $value;
-            }
-        )*
-    });
-}
-
+#[macro_export]
 macro_rules! status_inc {
     ( $( $key:ident: $value:expr),* ) => ({
         let mut status = $crate::status::STATUS.write().unwrap();

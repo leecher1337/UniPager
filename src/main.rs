@@ -1,4 +1,3 @@
-#![feature(mpsc_select)]
 extern crate serial;
 extern crate raspi;
 extern crate ws;
@@ -28,10 +27,10 @@ use std::time;
 use std::fs::File;
 use std::io::Read;
 
-use config::Config;
+use crate::config::Config;
 use connection::Connection;
-use frontend::{Request, Response};
-use pocsag::Scheduler;
+use crate::frontend::{Request, Response};
+use crate::pocsag::Scheduler;
 
 fn print_version() {
     println!("UniPager {}", env!("CARGO_PKG_VERSION"));

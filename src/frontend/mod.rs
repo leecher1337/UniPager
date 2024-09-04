@@ -7,9 +7,9 @@ use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 use serde_json;
 
-use config::Config;
-use status::Status;
-use pocsag::Message;
+use crate::config::Config;
+use crate::status::Status;
+use crate::pocsag::Message;
 
 #[derive(Debug, Deserialize)]
 pub enum Request {

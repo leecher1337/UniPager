@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use ws;
 
-use frontend::{Request, Response};
+use crate::frontend::{Request, Response};
 
 struct Server {
     ws: ws::Sender,

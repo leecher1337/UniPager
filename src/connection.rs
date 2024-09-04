@@ -5,9 +5,8 @@ use std::sync::mpsc::{Sender, channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration};
 
-use config::Config;
-use pocsag::{Message, MessageFunc, MessageSpeed, MessageType};
-use pocsag::{Scheduler, TimeSlots};
+use crate::config::Config;
+use crate::pocsag::{Scheduler, TimeSlots, Message, MessageFunc, MessageSpeed, MessageType};
 
 pub struct Connection {
     stream: TcpStream,

@@ -80,7 +80,7 @@ sudo apt-get install unipager
 Install rust. Since *v1* depends on old, now removed rust features we have to use an old nightly toolchain:
 
 ```bash
-curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly-2019-05-19
+curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly-2024-09-04
 ```
 
 Now reboot OR log out to make the rust toolchain available.

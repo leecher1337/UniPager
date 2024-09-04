@@ -5,4 +5,4 @@ authors = ["Thomas Gatzweiler <mail@thomasgatzweiler.com>"]
 
 [dependencies]
 libc = "^0.2.18"
-rppal = "0.13.1"
+rppal = "^0.19"

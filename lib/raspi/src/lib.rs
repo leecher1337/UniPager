@@ -1,6 +1,3 @@
-extern crate libc;
-extern crate rppal;
-
 pub mod gpio;
 pub mod model;
 

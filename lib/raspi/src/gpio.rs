@@ -1,6 +1,4 @@
-use libc;
 use model::Model;
-use rppal::gpio;
 use std::ptr::{read_volatile, write_volatile};
 use std::sync::Arc;
 
@@ -58,7 +56,7 @@ impl Gpio {
         })
     }
 
-    pub fn pin(&self, number: usize, direction: Direction) -> Box<Pin> {
+    pub fn pin(&self, number: usize, direction: Direction) -> Box<dyn Pin> {
         match self {
             &Gpio::MemGpio {
                 ref base,
@@ -75,7 +73,7 @@ impl Gpio {
                     .as_ref()
                     .and_then(|mapping| mapping.get(number).map(|num| *num))
                     .unwrap_or(number);
-                Box::new(SysFsGpioPin::new(number, direction))
+                Box::new(SysFsGpioPin::new(number as u8, direction))
             }
         }
     }
@@ -109,57 +107,64 @@ pub trait Pin {
 
 pub struct SysFsGpioPin {
     direction: Direction,
-    pin: rppal::gpio::Pin,
+    pin: u8,
 }
 
 impl SysFsGpioPin {
-    pub fn new(number: usize, direction: Direction) -> SysFsGpioPin {
+    pub fn new(number: u8, direction: Direction) -> SysFsGpioPin {
+        println!("Attempting to export GPIO pin {}", number);
 
-        let mut pin = SysFsGpioPin {
-            pin: rppal::gpio::Gpio::new()?.get(pin),
+        set_gpio_pin(number, direction);
+
+        let pin = SysFsGpioPin {
+            pin: number,
             direction: direction,
         };
-
-        println!("Attempting to export GPIO pin {}", number);
-        pin.pin.export().expect("Failed to export GPIO pin.");
-
-        if matches!(self.direction, Direction::Input) {
-            pin.pin.into_input()
-        } else {
-            pin.pin.into_output()
-        }
 
         pin
     }
 }
 
+pub fn get_gpio_pin(number: u8) -> rppal::gpio::Pin {
+    rppal::gpio::Gpio::new()
+        .expect("Failed to initialize GPIO")
+        .get(number as u8)
+        .expect("Failed to get the pin")
+}
+
+pub fn set_gpio_pin(number: u8, direction: Direction) {
+    let gpio_pin = get_gpio_pin(number);
+
+    if matches!(direction, Direction::Input) {
+        gpio_pin.into_input();
+    } else {
+        gpio_pin.into_output();
+    }
+}
+
 impl Pin for SysFsGpioPin {
     fn set_direction(&mut self, direction: Direction) {
-        self.direction = direction;
-
-        if matches!(self.direction, Direction::Input) {
-            self.pin
-                .into_input()
-        } else {
-            self.pin
-                .into_output()
-        }
+        set_gpio_pin(self.pin, direction);
     }
 
     fn set(&self, value: bool) {
         assert_eq!(self.direction, Direction::Output);
-        self.pin = rppal::gpio::Gpio::new()?.get(value as u8).ok();
+
+        let gpio_pin = get_gpio_pin(self.pin);
+
+        if value {
+            gpio_pin.into_output_high();
+        } else {
+            gpio_pin.into_output_low();
+        }
     }
 
     fn read(&self) -> bool {
         assert_eq!(self.direction, Direction::Input);
         
-        match self.pin.read() {
-            Ok(s) => match s {
-                rppal::gpio::Level::High => Ok(1),
-                rppal::gpio::Level::Low => Ok(0),
-            },
-            Err(e) => Err(::std::convert::From::from(e)),
+        match get_gpio_pin(self.pin).read() {
+            rppal::gpio::Level::High => true,
+            rppal::gpio::Level::Low => false,
         }
     }
 }
