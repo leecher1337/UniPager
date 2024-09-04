@@ -1,19 +1,19 @@
-use std::sync::Arc;
-use std::ptr::{read_volatile, write_volatile};
 use libc;
 use model::Model;
-use sysfs_gpio;
+use rppal::gpio;
+use std::ptr::{read_volatile, write_volatile};
+use std::sync::Arc;
 
 pub struct GpioBase(*mut u32);
 
 pub enum Gpio {
     MemGpio {
         base: Arc<GpioBase>,
-        pin_mapping: Option<Vec<usize>>
+        pin_mapping: Option<Vec<usize>>,
     },
     SysFsGpio {
-        pin_mapping: Option<Vec<usize>>
-    }
+        pin_mapping: Option<Vec<usize>>,
+    },
 }
 
 impl Gpio {
@@ -23,22 +23,24 @@ impl Gpio {
 
         if base.is_none() {
             return Some(Gpio::SysFsGpio {
-                pin_mapping: model.pin_mapping()
+                pin_mapping: model.pin_mapping(),
             });
         }
 
         let mapped_base = unsafe {
             let mem = "/dev/mem\0".as_ptr() as *const libc::c_char;
-            let mem_fd = libc::open(mem, libc::O_RDWR|libc::O_SYNC);
-            if mem_fd < 0 { return None; }
+            let mem_fd = libc::open(mem, libc::O_RDWR | libc::O_SYNC);
+            if mem_fd < 0 {
+                return None;
+            }
 
             let mapped_base = libc::mmap(
-              0 as *mut libc::c_void,
-              0x1000,
-              libc::PROT_READ|libc::PROT_WRITE,
-              libc::MAP_SHARED,
-              mem_fd,
-              base.unwrap() as libc::off_t
+                0 as *mut libc::c_void,
+                0x1000,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                mem_fd,
+                base.unwrap() as libc::off_t,
             );
 
             libc::close(mem_fd);
@@ -52,26 +54,31 @@ impl Gpio {
 
         Some(Gpio::MemGpio {
             base: Arc::new(GpioBase(mapped_base as *mut u32)),
-            pin_mapping: model.pin_mapping()
+            pin_mapping: model.pin_mapping(),
         })
     }
 
     pub fn pin(&self, number: usize, direction: Direction) -> Box<Pin> {
         match self {
-            &Gpio::MemGpio { ref base, ref pin_mapping } => {
-                let number = pin_mapping.as_ref().and_then(|mapping| {
-                    mapping.get(number).map(|num| *num)
-                }).unwrap_or(number);
+            &Gpio::MemGpio {
+                ref base,
+                ref pin_mapping,
+            } => {
+                let number = pin_mapping
+                    .as_ref()
+                    .and_then(|mapping| mapping.get(number).map(|num| *num))
+                    .unwrap_or(number);
                 Box::new(MemGpioPin::new(base.clone(), number, direction))
-            },
+            }
             &Gpio::SysFsGpio { ref pin_mapping } => {
-                let number = pin_mapping.as_ref().and_then(|mapping| {
-                    mapping.get(number).map(|num| *num)
-                }).unwrap_or(number);
+                let number = pin_mapping
+                    .as_ref()
+                    .and_then(|mapping| mapping.get(number).map(|num| *num))
+                    .unwrap_or(number);
                 Box::new(SysFsGpioPin::new(number, direction))
             }
         }
-   }
+    }
 }
 
 impl Drop for GpioBase {
@@ -83,7 +90,7 @@ impl Drop for GpioBase {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Direction {
     Input,
-    Output
+    Output,
 }
 
 pub trait Pin {
@@ -102,19 +109,26 @@ pub trait Pin {
 
 pub struct SysFsGpioPin {
     direction: Direction,
-    pin: sysfs_gpio::Pin
+    pin: rppal::gpio::Pin,
 }
 
 impl SysFsGpioPin {
     pub fn new(number: usize, direction: Direction) -> SysFsGpioPin {
+
         let mut pin = SysFsGpioPin {
-            pin: sysfs_gpio::Pin::new(number as u64),
-            direction: direction
+            pin: rppal::gpio::Gpio::new()?.get(pin),
+            direction: direction,
         };
-        
+
         println!("Attempting to export GPIO pin {}", number);
         pin.pin.export().expect("Failed to export GPIO pin.");
-        pin.set_direction(direction);
+
+        if matches!(self.direction, Direction::Input) {
+            pin.pin.into_input()
+        } else {
+            pin.pin.into_output()
+        }
+
         pin
     }
 }
@@ -123,37 +137,49 @@ impl Pin for SysFsGpioPin {
     fn set_direction(&mut self, direction: Direction) {
         self.direction = direction;
 
-        let direction = match self.direction {
-            Direction::Input => sysfs_gpio::Direction::In,
-            Direction::Output => sysfs_gpio::Direction::Out
-        };
-
-        self.pin.set_direction(direction).expect("Failed to set GPIO direction.");
+        if matches!(self.direction, Direction::Input) {
+            self.pin
+                .into_input()
+        } else {
+            self.pin
+                .into_output()
+        }
     }
 
     fn set(&self, value: bool) {
         assert_eq!(self.direction, Direction::Output);
-        self.pin.set_value(value as u8).ok();
+        self.pin = rppal::gpio::Gpio::new()?.get(value as u8).ok();
     }
 
     fn read(&self) -> bool {
         assert_eq!(self.direction, Direction::Input);
-        self.pin.get_value().map(|val| val != 0).unwrap_or(false)
+        
+        match self.pin.read() {
+            Ok(s) => match s {
+                rppal::gpio::Level::High => Ok(1),
+                rppal::gpio::Level::Low => Ok(0),
+            },
+            Err(e) => Err(::std::convert::From::from(e)),
+        }
     }
 }
 
 pub struct MemGpioPin {
     base: Arc<GpioBase>,
     number: usize,
-    direction: Direction
+    direction: Direction,
 }
 
 impl MemGpioPin {
-    pub fn new(base: Arc<GpioBase>, number: usize, direction: Direction) -> MemGpioPin {
+    pub fn new(
+        base: Arc<GpioBase>,
+        number: usize,
+        direction: Direction,
+    ) -> MemGpioPin {
         let mut pin = MemGpioPin {
             base: base,
             number: number,
-            direction: direction
+            direction: direction,
         };
 
         pin.set_direction(direction);
@@ -168,14 +194,16 @@ impl Pin for MemGpioPin {
 
         match self.direction {
             Direction::Input => unsafe {
-                let p = (*self.base).0.offset((number/10) as isize) as *mut u32;
+                let p =
+                    (*self.base).0.offset((number / 10) as isize) as *mut u32;
                 *p &= !(0b111 << ((number % 10) * 3));
             },
             Direction::Output => unsafe {
-                let p = (*self.base).0.offset((number/10) as isize) as *mut u32;
+                let p =
+                    (*self.base).0.offset((number / 10) as isize) as *mut u32;
                 *p &= !(0b111 << ((number % 10) * 3));
                 *p |= 0b1 << ((number % 10) * 3);
-            }
+            },
         };
     }
 
@@ -186,8 +214,7 @@ impl Pin for MemGpioPin {
                 let gpio_set = (*self.base).0.offset(7) as *mut u32;
                 write_volatile(gpio_set, 1 << self.number);
             }
-        }
-        else {
+        } else {
             unsafe {
                 let gpio_clr = (*self.base).0.offset(10) as *mut u32;
                 write_volatile(gpio_clr, 1 << self.number);
@@ -210,7 +237,7 @@ impl Drop for MemGpioPin {
             Direction::Output => {
                 self.set_low();
                 self.set_direction(Direction::Input);
-            },
+            }
             Direction::Input => {
                 // nothing to clean up
             }

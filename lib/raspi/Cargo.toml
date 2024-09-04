@@ -5,4 +5,4 @@ authors = ["Thomas Gatzweiler <mail@thomasgatzweiler.com>"]
 
 [dependencies]
 libc = "^0.2.18"
-sysfs_gpio = "^0.5.4"
+rppal = "0.13.1"
