@@ -39,17 +39,13 @@ impl Gpio {
 
 		libc::close(mem_fd);
 
-		if mapped_base == libc::MAP_FAILED {
-		    return None;
-		}
-
 		mapped_base
 	    };
 
-	    return Some(Gpio::MemGpio {
+	    if mapped_base != libc::MAP_FAILED { return Some(Gpio::MemGpio {
 		base: Arc::new(GpioBase(mapped_base as *mut u32)),
 		pin_mapping: model.pin_mapping()
-	    })
+	    }) }
 	}
 	
         let chip = Chip::new("/dev/gpiochip0").ok()?;
