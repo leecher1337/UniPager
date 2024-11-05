@@ -26,8 +26,7 @@ impl Gpio {
 	    let mapped_base = unsafe {
 		let mem = "/dev/mem\0".as_ptr() as *const libc::c_char;
 		let mem_fd = libc::open(mem, libc::O_RDWR|libc::O_SYNC);
-		if mem_fd < 0 { return None; }
-
+		if mem_fd < 0 { let mapped_base = libc::MAP_FAILED; mapped_base } else {
 		let mapped_base = libc::mmap(
 		  0 as *mut libc::c_void,
 		  0x1000,
@@ -40,6 +39,7 @@ impl Gpio {
 		libc::close(mem_fd);
 
 		mapped_base
+		}
 	    };
 
 	    if mapped_base != libc::MAP_FAILED { return Some(Gpio::MemGpio {
