@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use gpio_cdev::{Chip, LineRequestFlags, LineHandle};
+use std::sync::{Arc, Mutex};
 use std::ptr::{read_volatile, write_volatile};
 use libc;
 use model::Model;
-use sysfs_gpio;
 
 pub struct GpioBase(*mut u32);
 
@@ -11,8 +11,9 @@ pub enum Gpio {
         base: Arc<GpioBase>,
         pin_mapping: Option<Vec<usize>>
     },
-    SysFsGpio {
-        pin_mapping: Option<Vec<usize>>
+    GpioCdev {
+        chip: Arc<Mutex<Chip>>,
+        pin_mapping: Option<Vec<usize>>,
     }
 }
 
@@ -21,38 +22,40 @@ impl Gpio {
         let model = Model::get();
         let base = model.gpio_base();
 
-        if base.is_none() {
-            return Some(Gpio::SysFsGpio {
-                pin_mapping: model.pin_mapping()
-            });
-        }
+        if let Some(base_addr) = base {
+	    let mapped_base = unsafe {
+		let mem = "/dev/mem\0".as_ptr() as *const libc::c_char;
+		let mem_fd = libc::open(mem, libc::O_RDWR|libc::O_SYNC);
+		if mem_fd < 0 { return None; }
 
-        let mapped_base = unsafe {
-            let mem = "/dev/mem\0".as_ptr() as *const libc::c_char;
-            let mem_fd = libc::open(mem, libc::O_RDWR|libc::O_SYNC);
-            if mem_fd < 0 { return None; }
+		let mapped_base = libc::mmap(
+		  0 as *mut libc::c_void,
+		  0x1000,
+		  libc::PROT_READ|libc::PROT_WRITE,
+		  libc::MAP_SHARED,
+		  mem_fd,
+		  base.unwrap() as libc::off_t
+		);
 
-            let mapped_base = libc::mmap(
-              0 as *mut libc::c_void,
-              0x1000,
-              libc::PROT_READ|libc::PROT_WRITE,
-              libc::MAP_SHARED,
-              mem_fd,
-              base.unwrap() as libc::off_t
-            );
+		libc::close(mem_fd);
 
-            libc::close(mem_fd);
+		if mapped_base == libc::MAP_FAILED {
+		    return None;
+		}
 
-            if mapped_base == libc::MAP_FAILED {
-                return None;
-            }
+		mapped_base
+	    };
 
-            mapped_base
-        };
-
-        Some(Gpio::MemGpio {
-            base: Arc::new(GpioBase(mapped_base as *mut u32)),
-            pin_mapping: model.pin_mapping()
+	    return Some(Gpio::MemGpio {
+		base: Arc::new(GpioBase(mapped_base as *mut u32)),
+		pin_mapping: model.pin_mapping()
+	    })
+	}
+	
+        let chip = Chip::new("/dev/gpiochip0").ok()?;
+        Some(Gpio::GpioCdev {
+            chip: Arc::new(Mutex::new(chip)),
+            pin_mapping: model.pin_mapping(),
         })
     }
 
@@ -64,11 +67,11 @@ impl Gpio {
                 }).unwrap_or(number);
                 Box::new(MemGpioPin::new(base.clone(), number, direction))
             },
-            &Gpio::SysFsGpio { ref pin_mapping } => {
+            &Gpio::GpioCdev  { ref chip, ref pin_mapping } => {
                 let number = pin_mapping.as_ref().and_then(|mapping| {
                     mapping.get(number).map(|num| *num)
                 }).unwrap_or(number);
-                Box::new(SysFsGpioPin::new(number, direction))
+                Box::new(GpioCdevPin::new(chip.clone(), number as u32, direction))
             }
         }
    }
@@ -100,44 +103,50 @@ pub trait Pin {
     }
 }
 
-pub struct SysFsGpioPin {
+pub struct GpioCdevPin {
     direction: Direction,
-    pin: sysfs_gpio::Pin
+    handle: LineHandle
 }
 
-impl SysFsGpioPin {
-    pub fn new(number: usize, direction: Direction) -> SysFsGpioPin {
-        let mut pin = SysFsGpioPin {
-            pin: sysfs_gpio::Pin::new(number as u64),
-            direction: direction
+impl GpioCdevPin {
+    pub fn new(chip: Arc<Mutex<Chip>>, number: u32, direction: Direction) -> GpioCdevPin {
+
+        let flags = match direction {
+            Direction::Input => LineRequestFlags::INPUT,
+            Direction::Output => LineRequestFlags::OUTPUT,
         };
 
-        pin.pin.export().expect("Failed to export GPIO pin.");
-        pin.set_direction(direction);
-        pin
+        let mut chip = chip.lock().expect("Failed to lock the GPIO chip");
+        let handle = chip.get_line(number).expect("Failed to get GPIO line")
+            .request(flags, 0, "CDev GPIO Pin").expect("Failed to request GPIO line");
+
+        GpioCdevPin {
+            direction,
+            handle,
+        }
     }
 }
 
-impl Pin for SysFsGpioPin {
+impl Pin for GpioCdevPin {
     fn set_direction(&mut self, direction: Direction) {
-        self.direction = direction;
-
-        let direction = match self.direction {
-            Direction::Input => sysfs_gpio::Direction::In,
-            Direction::Output => sysfs_gpio::Direction::Out
+        let flags = match direction {
+            Direction::Input => LineRequestFlags::INPUT,
+            Direction::Output => LineRequestFlags::OUTPUT,
         };
 
-        self.pin.set_direction(direction).expect("Failed to set GPIO direction.");
+        self.handle = self.handle.line().chip().get_line(self.handle.line().offset()).expect("Failed to get GPIO line")
+            .request(flags, 0, "CDev GPIO Pin").expect("Failed to re-request GPIO line");
+        self.direction = direction;
     }
 
     fn set(&self, value: bool) {
         assert_eq!(self.direction, Direction::Output);
-        self.pin.set_value(value as u8).ok();
+        self.handle.set_value(value as u8).expect("Failed to set GPIO value");
     }
 
     fn read(&self) -> bool {
         assert_eq!(self.direction, Direction::Input);
-        self.pin.get_value().map(|val| val != 0).unwrap_or(false)
+        self.handle.get_value().map(|val| val != 0).unwrap_or(false)
     }
 }
 
