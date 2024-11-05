@@ -1,4 +1,4 @@
-#![feature(mpsc_select)]
+extern crate crossbeam;
 extern crate serial;
 extern crate raspi;
 extern crate ws;
